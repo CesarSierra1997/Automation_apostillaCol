@@ -348,6 +348,8 @@ def pagina5_confirmar_datos(page):
 
     radio_si = page.locator("#contenido_Wizard3_rbSi")
     boton_continuar = page.locator("#contenido_Wizard3_StepNavigationTemplateContainerID_StepNextButton")
+    modal_selector = "#contenido_ucInfor_panInformmacion"
+    mensaje_selector = "#contenido_ucInfor_lbMensajeEnPopup"
 
     # 1. Marcar el radio 'Sí' y verificar su estado
     try:
@@ -364,7 +366,36 @@ def pagina5_confirmar_datos(page):
         # Aquí capturamos cualquier error en el clic o en la evaluación
         raise Exception(f"❌ No se pudo marcar o forzar el radio 'Sí': {e}")
 
-    # 2. Hacer clic en continuar y esperar la navegación
+    # 2. NUEVA LÓGICA: Verificar si ya apareció el modal ANTES de hacer clic en continuar
+    if page.is_visible(modal_selector, timeout=3_000):
+        print("📝 Modal detectado inmediatamente después de marcar radio 'Sí'")
+        mensaje = page.inner_text(mensaje_selector)
+        print(f"📝 Mensaje: {mensaje[:120]}...")
+
+        # Extraer número de solicitud (empieza con 52)
+        match = re.search(r"\b52\d+\b", mensaje)
+        codigo = match.group(0) if match else None
+        if codigo:
+            print(f"✅ Código de solicitud encontrado: {codigo}")
+        else:
+            print("⚠️ No se encontró código en el modal")
+
+        # 🔄 Retroceder dinámicamente hasta Página 2
+        for i in range(7):
+            if page.is_visible("#contenido_Wizard3_tbCedula"):
+                print("📄 Confirmado: estamos de nuevo en Página 2")
+                break
+            try:
+                page.go_back(wait_until="commit")
+                print(f"↩️ Retroceso {i+1}/7 completado")
+            except Exception as e:
+                print(f"⚠️ Error en retroceso {i+1}: {e}")
+        else:
+            print("⚠️ No se pudo confirmar que volvimos a Página 2")
+
+        return codigo, False
+
+    # 3. Si no hay modal, proceder con el clic en continuar
     try:
         boton_continuar.click()
 
@@ -376,14 +407,11 @@ def pagina5_confirmar_datos(page):
         print(f"⚠️ Fallo en la navegación a Página 6: {e}. Validando si apareció un modal...")
 
     # =========================
-    # 3. Verificar si apareció modal (esto solo se ejecutará si la navegación falla)
+    # 4. Verificar si apareció modal DESPUÉS del clic (caso de respaldo)
     # =========================
-    modal_selector = "#contenido_ucInfor_panInformmacion"
-    mensaje_selector = "#contenido_ucInfor_lbMensajeEnPopup"
-
     if page.is_visible(modal_selector):
         mensaje = page.inner_text(mensaje_selector)
-        print(f"📝 Modal detectado: {mensaje[:120]}...")
+        print(f"📝 Modal detectado después del clic: {mensaje[:120]}...")
 
         # Extraer número de solicitud (empieza con 52)
         match = re.search(r"\b52\d+\b", mensaje)
