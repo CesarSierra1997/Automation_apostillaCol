@@ -5,7 +5,9 @@ import random
 import time
 import asyncio
 import sys
+import os
 BASE_URL = "https://tramites.cancilleria.gov.co/apostillalegalizacion/solicitud/inicio.aspx"
+
 
 # ==============================
 # 📌 FUNCIONES DE EXCEL
@@ -53,7 +55,7 @@ def pagina1_inicio(page):
     page.wait_for_selector("#contenido_ddlTipoSeleccion", timeout=15_000)
     page.select_option("#contenido_ddlTipoSeleccion", "21")
 
-    page.wait_for_selector("#contenido_ddlTipoDocumento", timeout=3_000)
+    page.wait_for_selector("#contenido_ddlTipoDocumento", timeout=5_000)
     page.select_option("#contenido_ddlTipoDocumento", "1")
 
     # Cerrar modal si aparece
@@ -64,13 +66,14 @@ def pagina1_inicio(page):
         pass
 
     # Forzar aceptación del checkbox
+    time.sleep(5)
     cb = page.locator("#contenido_cbAcepto")
     if not cb.is_checked():
         cb.check(force=True)
     print("✅ Checkbox marcado correctamente")
 
     # Clic en iniciar
-    page.click("#contenido_btnIniciar", timeout=5_000)
+    page.click("#contenido_btnIniciar", timeout=10_000)
 
     # Ahora esperamos: o bien carga Página 2, o bien aparece CAPTCHA
     try:
@@ -81,29 +84,31 @@ def pagina1_inicio(page):
         # No cargó página 2 aún → probablemente salió CAPTCHA
         return False
 
-
 def validar_captcha_hibrido(page, max_intentos=3):
     for intento in range(max_intentos):
         if page.is_visible("#contenido_ucInfor_lbMensajeEnPopup"):
             print(f"🤖 CAPTCHA detectado. Intento {intento+1}/{max_intentos}...")
             try:
                 # Cerrar modal (sin esperar navegación)
-                page.click("#contenido_ucInfor_lbClose", timeout=2000)
+                page.click("#contenido_ucInfor_lbClose", timeout=5000)
 
                 # Re-seleccionar selects y checkbox
                 page.select_option("#contenido_ddlTipoSeleccion", "21")
                 page.select_option("#contenido_ddlTipoDocumento", "1")
 
+                # Forzar aceptación del checkbox
                 cb = page.locator("#contenido_cbAcepto")
+                cb.wait_for()
                 if not cb.is_checked():
                     cb.check(force=True)
+                print("✅ Checkbox marcado correctamente")
 
                 # Dar clic en Continuar y esperar navegación real
-                with page.expect_navigation(wait_until="networkidle", timeout=40_000):
+                with page.expect_navigation(wait_until="networkidle", timeout=20_000):
                     page.click("#contenido_btnIniciar")
 
                 # Esperar campo cédula hasta 30s
-                page.wait_for_selector("#contenido_Wizard3_tbCedula", timeout=30_000)
+                page.wait_for_selector("#contenido_Wizard3_tbCedula", timeout=10_000)
                 print("✅ Página 2 cargada correctamente tras CAPTCHA")
                 return True
 
@@ -119,6 +124,7 @@ def validar_captcha_hibrido(page, max_intentos=3):
                 pass
     print("⚠️ CAPTCHA no se resolvió automáticamente")
     return False
+
 
 # ==============================
 # 📌 PÁGINA 2
@@ -157,19 +163,23 @@ def pagina2_cedula_correo(page, cedula: str, correo: str, max_retries=3):
 
         except TimeoutError:
             print(f"⚠️ Timeout en Página 2 (intento {attempt+1}/{max_retries})")
+            # Evitar navegación directa: solo reintentar
+            continue
 
-            # Intentar recuperar manualmente
-            try:
-                page.goto(
-                    "https://tramites.cancilleria.gov.co/apostillalegalizacion/PolNal/solicitud.aspx",
-                    wait_until="networkidle",
-                    timeout=30_000
-                )
-                continue
-            except Exception as e:
-                print(f"⚠️ No se pudo recuperar Página 2: {e}")
-                continue
+    return False
 
+def retroceder_a_pagina2(page, max_intentos=10):
+    """Vuelve dinámicamente a Página 2 mediante go_back."""
+    for i in range(max_intentos):
+        if page.is_visible("#contenido_Wizard3_tbCedula"):
+            print("📄 Confirmado: estamos de nuevo en Página 2")
+            return True
+        try:
+            page.go_back(wait_until="commit")
+            print(f"↩️ Retroceso {i+1}/{max_intentos} completado")
+        except Exception as e:
+            print(f"⚠️ Error en retroceso {i+1}: {e}")
+    print("⚠️ No se pudo confirmar que volvimos a Página 2")
     return False
 
 
@@ -245,17 +255,7 @@ def pagina3_checkboxes_fecha(page, fecha_expedicion: str):
                 print(f"⚠️ No se pudo cerrar el modal: {e}")
 
             # 🔄 Retroceder dinámicamente hasta Página 2
-            for i in range(6):  # máximo 6 retrocesos
-                if page.is_visible("#contenido_Wizard3_tbCedula"):
-                    print("📄 Confirmado: estamos de nuevo en Página 2")
-                    break
-                try:
-                    page.go_back(wait_until="commit")
-                    print(f"↩️ Retroceso {i+1}/6 completado")
-                except Exception as e:
-                    print(f"⚠️ Error en retroceso {i+1}: {e}")
-            else:
-                print("⚠️ No se pudo confirmar que volvimos a Página 2")
+            retroceder_a_pagina2(page)
 
             return False, mensaje
         else:
@@ -294,7 +294,7 @@ def pagina4_seleccionar_pais(page, pais_value: str):
     print(f"✅ País seleccionado (value={pais_value})")
 
     # Esperar al postback parcial
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(5000)
 
     # Click en "Continuar"
     page.click("#contenido_Wizard3_StepNavigationTemplateContainerID_StepNextButton")
@@ -309,6 +309,7 @@ def pagina4_seleccionar_pais(page, pais_value: str):
     except Exception:
         # 📌 Verificar si apareció la alerta DIJIN
         try:
+            time.sleep(5)
             if page.is_visible("#contenido_ucInfor_panInformativo", timeout=3_000):
                 mensaje = page.inner_text("#contenido_ucInfor_lblMensajes2")
                 print(f"❌ Alerta detectada en Página 4: {mensaje}...")
@@ -316,17 +317,7 @@ def pagina4_seleccionar_pais(page, pais_value: str):
                 mensaje_simplificado = "Validar con dijin"
 
                 # 🔄 Retroceder dinámicamente hasta Página 2
-                for i in range(6):  # máximo 6 retrocesos
-                    if page.is_visible("#contenido_Wizard3_tbCedula"):
-                        print("📄 Confirmado: estamos de nuevo en Página 2")
-                        break
-                    try:
-                        page.go_back(wait_until="commit")
-                        print(f"↩️ Retroceso {i+1}/6 completado")
-                    except Exception as e:
-                        print(f"⚠️ Error en retroceso {i+1}: {e}")
-                else:
-                    print("⚠️ No se pudo confirmar que volvimos a Página 2")
+                retroceder_a_pagina2(page)
 
                 return False, mensaje_simplificado
         except Exception:
@@ -338,11 +329,38 @@ def pagina4_seleccionar_pais(page, pais_value: str):
 # ==============================
 # 📌 PÁGINA 5
 # ==============================
-def pagina5_confirmar_datos(page):
-    """Confirma los datos y maneja el modal de solicitud existente.
+def extraer_codigo_modal(page, modal_selector, mensaje_selector):
+    """Extrae el código de solicitud del modal (si existe) y guarda screenshot."""
+    codigo = None
+    try:
+        if page.is_visible(modal_selector):
+            mensaje = page.inner_text(mensaje_selector)
+            print(f"📝 Modal detectado: {mensaje[:120]}...")
+
+            # Guardar screenshot con timestamp
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"modal_{ts}.png"
+            page.screenshot(path=filename)
+            print(f"📸 Screenshot guardado: {filename}")
+
+            # Buscar número de solicitud que empiece con 52
+            match = re.search(r"\b52\d+\b", mensaje)
+            if match:
+                codigo = match.group(0)
+                print(f"✅ Código detectado en el modal: {codigo}")
+            else:
+                print("⚠️ No se encontró código en el modal")
+    except Exception as e:
+        print(f"⚠️ Error al leer modal: {e}")
+    return codigo
+
+def pagina5_confirmar_datos(page, max_reintentos=3):
+    """
+    Página 5: confirmar datos.
     Retorna:
-      (codigo, False) -> si apareció el modal con solicitud existente
-      (None, True)    -> si avanzó al flujo normal
+      (codigo, False) -> si apareció modal con solicitud previa
+      (None, True)    -> si avanzó correctamente a Página 6
+      (None, False)   -> si no se pudo avanzar
     """
     print("🌐 Página 5: Confirmar datos")
 
@@ -351,93 +369,50 @@ def pagina5_confirmar_datos(page):
     modal_selector = "#contenido_ucInfor_panInformmacion"
     mensaje_selector = "#contenido_ucInfor_lbMensajeEnPopup"
 
-    # 1. Marcar el radio 'Sí' y verificar su estado
+    # --- Caso 1: Modal inmediato (existe solicitud previa) ---
+    try:
+        modal_visible = page.wait_for_selector(modal_selector, state="visible", timeout=2_000)
+        if modal_visible:
+            codigo = extraer_codigo_modal(page, modal_selector, mensaje_selector)
+            if codigo:
+                retroceder_a_pagina2(page)
+                return codigo, False
+            else:
+                print("⚠️ Modal sin código, se fuerza retroceso a pág. 2")
+                retroceder_a_pagina2(page)
+                return None, False
+    except TimeoutError:
+        print("✅ No apareció modal en Página 5")
+
+    # --- Caso 2: Flujo normal ---
     try:
         radio_si.scroll_into_view_if_needed()
-        # En lugar de .check(), usamos .click() y forzamos el estado con JavaScript
         radio_si.click(force=True)
-        # Forzar el estado 'checked' directamente en el DOM
+        print("✅ Radio 'Sí' marcado")
+    except Exception:
         page.evaluate("document.getElementById('contenido_Wizard3_rbSi').checked = true;")
-        print("✅ Radio 'Sí' marcado y su estado forzado a 'checked'")
-        
-        # Esperar un breve momento por si hay eventos asíncronos en la página
-        time.sleep(2)
-    except Exception as e:
-        # Aquí capturamos cualquier error en el clic o en la evaluación
-        raise Exception(f"❌ No se pudo marcar o forzar el radio 'Sí': {e}")
+        print("⚠️ Radio 'Sí' forzado por JS")
 
-    # 2. NUEVA LÓGICA: Verificar si ya apareció el modal ANTES de hacer clic en continuar
-    if page.is_visible(modal_selector, timeout=3_000):
-        print("📝 Modal detectado inmediatamente después de marcar radio 'Sí'")
-        mensaje = page.inner_text(mensaje_selector)
-        print(f"📝 Mensaje: {mensaje[:120]}...")
+    # --- Intentar avanzar a Página 6 ---
+    for intento in range(1, max_reintentos + 1):
+        try:
+            print(f"➡️ Click en 'Continuar' (intento {intento})")
+            boton_continuar.click()
 
-        # Extraer número de solicitud (empieza con 52)
-        match = re.search(r"\b52\d+\b", mensaje)
-        codigo = match.group(0) if match else None
-        if codigo:
-            print(f"✅ Código de solicitud encontrado: {codigo}")
-        else:
-            print("⚠️ No se encontró código en el modal")
-
-        # 🔄 Retroceder dinámicamente hasta Página 2
-        for i in range(7):
-            if page.is_visible("#contenido_Wizard3_tbCedula"):
-                print("📄 Confirmado: estamos de nuevo en Página 2")
-                break
-            try:
-                page.go_back(wait_until="commit")
-                print(f"↩️ Retroceso {i+1}/7 completado")
-            except Exception as e:
-                print(f"⚠️ Error en retroceso {i+1}: {e}")
-        else:
-            print("⚠️ No se pudo confirmar que volvimos a Página 2")
-
-        return codigo, False
-
-    # 3. Si no hay modal, proceder con el clic en continuar
-    try:
-        boton_continuar.click()
-
-        # Esperar explícitamente a un elemento de la página 6
-        page.wait_for_selector("#contenido_Wizard2_infoNumeroSolicitud_lblMensajes2", timeout=30_000)
-        print("✅ Navegación a Página 6 confirmada, continuando con el flujo normal")
-        return None, True
-    except Exception as e:
-        print(f"⚠️ Fallo en la navegación a Página 6: {e}. Validando si apareció un modal...")
-
-    # =========================
-    # 4. Verificar si apareció modal DESPUÉS del clic (caso de respaldo)
-    # =========================
-    if page.is_visible(modal_selector):
-        mensaje = page.inner_text(mensaje_selector)
-        print(f"📝 Modal detectado después del clic: {mensaje[:120]}...")
-
-        # Extraer número de solicitud (empieza con 52)
-        match = re.search(r"\b52\d+\b", mensaje)
-        codigo = match.group(0) if match else None
-        if codigo:
-            print(f"✅ Código de solicitud encontrado: {codigo}")
-        else:
-            print("⚠️ No se encontró código en el modal")
-
-        # 🔄 Retroceder dinámicamente hasta Página 2
-        for i in range(7):
-            if page.is_visible("#contenido_Wizard3_tbCedula"):
-                print("📄 Confirmado: estamos de nuevo en Página 2")
-                break
-            try:
-                page.go_back(wait_until="commit")
-                print(f"↩️ Retroceso {i+1}/7 completado")
-            except Exception as e:
-                print(f"⚠️ Error en retroceso {i+1}: {e}")
-        else:
-            print("⚠️ No se pudo confirmar que volvimos a Página 2")
-
-        return codigo, False
-    else:
-        print("❌ La página no navegó y no se detectó un modal. Algo inesperado ocurrió.")
-        return None, False
+            # Validar que la URL cambie a página 6
+            page.wait_for_url(
+                re.compile(r".*/capturaDatosPagos\.aspx.*"),
+                timeout=8_000
+            )
+            print("✅ Avanzamos correctamente a Página 6")
+            return None, True
+        except TimeoutError:
+            print(f"⚠️ No se avanzó a Página 6 en intento {intento}")
+            if intento < max_reintentos:
+                time.sleep(2)
+            else:
+                print("❌ Error: no se pudo avanzar a Página 6 después de varios intentos")
+                return None, False
 
 # ==============================
 # 📌 PÁGINA 6
@@ -446,39 +421,48 @@ def pagina6_codigo(page):
     """Captura el número de solicitud en la página 6 y retrocede hasta la página 2."""
     print("🌐 Página 6: Capturando número de solicitud...")
 
-    selector_mensaje = "#contenido_Wizard2_infoNumeroSolicitud_lblMensajes2"
+    candidatos = [
+        "#contenido_Wizard2_infoNumeroSolicitud_lblMensajes2",
+        "#contenido_Wizard3_infoNumeroSolicitud_lblMensajes2",
+        "#contenido_Wizard2_lblMensajes2",
+        "#contenido_Wizard3_lblMensajes2",
+    ]
 
-    # Intentar leer el mensaje varias veces
-    codigo = None
-    for intento in range(5):
-        try:
-            mensaje = page.inner_text(selector_mensaje).strip()
-            # Buscar un número de 10 dígitos o más que empiece con '52'
-            match = re.search(r"\b52\d{9,}\b", mensaje)
-            if match:
-                codigo = match.group(0)
-                print(f"✅ Código de solicitud encontrado en intento {intento+1}: {codigo}")
+    selector_mensaje = None
+    for s in candidatos:
+        if page.is_visible(s):
+            selector_mensaje = s
+            break
+    if not selector_mensaje:
+        for s in candidatos:
+            try:
+                page.wait_for_selector(s, timeout=8_000)
+                selector_mensaje = s
                 break
-        except:
-            pass
-        time.sleep(1)
+            except TimeoutError:
+                continue
+
+    codigo = None
+    if selector_mensaje:
+        for intento in range(5):
+            try:
+                mensaje = page.inner_text(selector_mensaje).strip()
+                match = re.search(r"\b52\d+\b", mensaje)
+                if match:
+                    codigo = match.group(0)
+                    print(f"✅ Código de solicitud encontrado en intento {intento+1}: {codigo}")
+                    break
+            except Exception as e:
+                print(f"⚠️ No se pudo leer el mensaje en intento {intento+1}: {e}")
+            time.sleep(1)
+    else:
+        print("⚠️ No se detectó el contenedor del código en Página 6. Puede que haya cambiado el ID.")
 
     if not codigo:
-        print("⚠️ No se pudo capturar código en Página 6, continuando con retrocesos igualmente.")
+        print("⚠️ No se pudo capturar código en Página 6.")
 
-    # Retroceder hasta Página 2
-    for i in range(10):
-        if page.is_visible("#contenido_Wizard3_tbCedula"):
-            print("📄 Confirmación: regresamos correctamente a Página 2")
-            break
-        try:
-            page.go_back(wait_until="commit")
-            print(f"↩️ Retroceso {i+1}/10 realizado")
-        except Exception as e:
-            print(f"⚠️ Problema en retroceso {i+1}: {e}")
-    else:
-        print("❌ No fue posible regresar a Página 2 después de Página 6")
-
+    # ✅ Reutilizamos la función para volver a página 2
+    retroceder_a_pagina2(page)
     return codigo
 
 
@@ -525,14 +509,11 @@ def main():
 
     df = leer_excel("entrada.xlsx")
 
-    # Asegurar que columnas existan y sean tipo string
+    # Asegurar que columnas existan
     if "OBSERVACIONES" not in df.columns:
         df["OBSERVACIONES"] = ""
     if "CODIGO" not in df.columns:
         df["CODIGO"] = ""
-
-    df["OBSERVACIONES"] = df["OBSERVACIONES"].astype(str)
-    df["CODIGO"] = df["CODIGO"].astype(str)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False, slow_mo=50)
@@ -546,9 +527,7 @@ def main():
             captcha_ok = validar_captcha_hibrido(page)
 
             if not captcha_ok:
-                print("⚠️ CAPTCHA requiere intervención manual. Espera que el usuario lo resuelva...")
-
-                # Esperar a que aparezca y cerrar modal de error si sale
+                print("⚠️ CAPTCHA requiere intervención manual...")
                 try:
                     page.wait_for_selector("#contenido_ucInfor_lbClose", timeout=15_000)
                     page.click("#contenido_ucInfor_lbClose")
@@ -557,12 +536,10 @@ def main():
                 except:
                     print("⚠️ No apareció modal de error de captcha, seguimos...")
 
-                # Reforzar checkbox antes de continuar
                 cb = page.locator("#contenido_cbAcepto")
                 if not cb.is_checked():
                     cb.check(force=True)
 
-                # Dar clic en continuar
                 boton = page.locator("#contenido_btnIniciar")
                 boton.wait_for(state="visible", timeout=5000)
                 with page.expect_navigation(wait_until="networkidle", timeout=30_000):
@@ -578,29 +555,41 @@ def main():
                 cedula = str(row["CEDULA"])
                 fecha_expedicion = row["FECHA_EXP"]
 
-                print(f"\nFila {i+1} Procesando..\n👤 {nombre} - cédula {cedula} ({i+1}/{len(df)})")
-
-                # Formatear fecha
-                try:
-                    fecha_str = pd.to_datetime(fecha_expedicion).strftime("%d%m%Y")
-                except Exception:
-                    df.at[i, "OBSERVACIONES"] = "Fecha inválida - Validar formato dd/mm/aa"
-                    df.at[i, "CODIGO"] = ""
+                # ✅ Validar si ya existe un código en la fila
+                if pd.notna(row["CODIGO"]) and str(row["CODIGO"]).strip() != "":
+                    print(f"\n⏭️ Fila {i+1} ({nombre}) ya tiene código: {row['CODIGO']} -> se omite")
                     continue
 
-                # Procesar desde Página 2 en adelante
-                codigo, observacion = procesar_persona(
-                    page, cedula, correo, fecha_str, pais_value
-                )
+                print(f"\nFila {i+1} Procesando..\n👤 {nombre} - cédula {cedula} ({i+1}/{len(df)})")
 
-                if observacion:
-                    df.at[i, "OBSERVACIONES"] = observacion
+                try:
+                    # Formatear fecha
+                    try:
+                        fecha_str = pd.to_datetime(fecha_expedicion).strftime("%d%m%Y")
+                    except Exception:
+                        df.at[i, "OBSERVACIONES"] = "Fecha inválida - Validar formato dd/mm/aa"
+                        df.at[i, "CODIGO"] = ""
+                        continue
+
+                    # Procesar desde Página 2 en adelante
+                    codigo, observacion = procesar_persona(
+                        page, cedula, correo, fecha_str, pais_value
+                    )
+
+                    if observacion:
+                        df.at[i, "OBSERVACIONES"] = observacion
+                        df.at[i, "CODIGO"] = ""
+                    else:
+                        df.at[i, "OBSERVACIONES"] = ""
+                        df.at[i, "CODIGO"] = str(codigo)
+
+                except Exception as e:
+                    print(f"❌ Error procesando fila {i+1}: {e}")
+                    df.at[i, "OBSERVACIONES"] = f"Error inesperado: {str(e)}"
                     df.at[i, "CODIGO"] = ""
-                else:
-                    df.at[i, "OBSERVACIONES"] = ""
-                    df.at[i, "CODIGO"] = str(codigo)
 
-            guardar_excel(df, "entrada.xlsx")
+                # 💾 Guardar progreso después de cada fila
+                guardar_excel(df, "entrada.xlsx")
 
         finally:
             browser.close()
