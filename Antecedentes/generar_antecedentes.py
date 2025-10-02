@@ -6,6 +6,7 @@ import time
 import asyncio
 import sys
 import os
+from datetime import datetime
 BASE_URL = "https://tramites.cancilleria.gov.co/apostillalegalizacion/solicitud/inicio.aspx"
 
 
@@ -369,20 +370,6 @@ def pagina5_confirmar_datos(page, max_reintentos=3):
     modal_selector = "#contenido_ucInfor_panInformmacion"
     mensaje_selector = "#contenido_ucInfor_lbMensajeEnPopup"
 
-    # --- Caso 1: Modal inmediato (existe solicitud previa) ---
-    try:
-        modal_visible = page.wait_for_selector(modal_selector, state="visible", timeout=2_000)
-        if modal_visible:
-            codigo = extraer_codigo_modal(page, modal_selector, mensaje_selector)
-            if codigo:
-                retroceder_a_pagina2(page)
-                return codigo, False
-            else:
-                print("⚠️ Modal sin código, se fuerza retroceso a pág. 2")
-                retroceder_a_pagina2(page)
-                return None, False
-    except TimeoutError:
-        print("✅ No apareció modal en Página 5")
 
     # --- Caso 2: Flujo normal ---
     try:
