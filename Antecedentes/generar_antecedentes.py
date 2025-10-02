@@ -414,6 +414,22 @@ def pagina5_confirmar_datos(page, max_reintentos=3):
                 print("❌ Error: no se pudo avanzar a Página 6 después de varios intentos")
                 return None, False
 
+    # --- Caso 1: Modal inmediato (existe solicitud previa) ---
+    try:
+        modal_visible = page.wait_for_selector(modal_selector, state="visible", timeout=5_000)
+        if modal_visible:
+            codigo = extraer_codigo_modal(page, modal_selector, mensaje_selector)
+            if codigo:
+                retroceder_a_pagina2(page)
+                return codigo, False
+            else:
+                print("⚠️ Modal sin código, se fuerza retroceso a pág. 2")
+                retroceder_a_pagina2(page)
+                return None, False
+    except TimeoutError:
+        print("✅ No apareció modal en Página 5")
+
+
 # ==============================
 # 📌 PÁGINA 6
 # ==============================
