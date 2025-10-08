@@ -409,8 +409,13 @@ def pagina5_confirmar_datos(page, max_reintentos=3):
     for intento in range(1, max_reintentos + 1):
         try:
             print(f"➡️ Click en 'Continuar' (intento {intento})")
+            if not radio_si.is_checked():
+                radio_si.scroll_into_view_if_needed()
+                radio_si.click(force=True)
+                print("✅ Radio 'Sí' marcado antes de CONTINUAR")
+            else:
+                print("ℹ️ Radio 'Sí' ya estaba marcado")
             boton_continuar.click()
-
             # Validar que la URL cambie a página 6
             page.wait_for_url(
                 re.compile(r".*/capturaDatosPagos\.aspx.*"),
