@@ -363,12 +363,6 @@ def extraer_codigo_modal(page, modal_selector, mensaje_selector):
             mensaje = page.inner_text(mensaje_selector)
             print(f"📝 Modal detectado: {mensaje[:120]}...")
 
-            # Guardar screenshot con timestamp
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"modal_{ts}.png"
-            page.screenshot(path=filename)
-            print(f"📸 Screenshot guardado: {filename}")
-
             # Buscar número de solicitud que empiece con 52
             match = re.search(r"\b52\d+\b", mensaje)
             if match:
@@ -376,6 +370,11 @@ def extraer_codigo_modal(page, modal_selector, mensaje_selector):
                 print(f"✅ Código detectado en el modal: {codigo}")
             else:
                 print("⚠️ No se encontró código en el modal")
+                # Guardar screenshot con timestamp
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"modal_{ts}.png"
+                page.screenshot(path=filename)
+                print(f"📸 Screenshot guardado: {filename}")
     except Exception as e:
         print(f"⚠️ Error al leer modal: {e}")
     return codigo
@@ -430,7 +429,6 @@ def pagina5_confirmar_datos(page, max_reintentos=3):
             else:
                 print("❌ Error: no se pudo avanzar a Página 6 después de varios intentos")
                 return None, False
-
 
 
 # ==============================
