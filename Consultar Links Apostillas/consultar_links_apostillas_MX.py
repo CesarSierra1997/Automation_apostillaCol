@@ -22,7 +22,7 @@ Uso
     pip install -r requirements.txt 
 
 2) Ejecuta:
-   python consulta_apostillas.py --excel Entrada.xlsx --salida salida.xlsx
+   python consulta_apostillas.py --excel entrada.xlsx --salida salida.xlsx
 
    (Si no pasas parámetros, buscará 'entrada.xlsx' y generará 'salida.xlsx' en la misma carpeta.)
 
