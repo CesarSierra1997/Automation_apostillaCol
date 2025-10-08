@@ -288,6 +288,7 @@ def pagina3_checkboxes_fecha(page, fecha_expedicion: str):
     retroceder_a_pagina2(page)
     return False, ultimo_error or "⚠️ Validar fecha de expedición CC (ningún formato aceptado)"
 
+
 # ==============================
 # 📌 PÁGINA 4
 # ==============================
