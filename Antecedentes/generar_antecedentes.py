@@ -535,8 +535,16 @@ def main():
         df["CODIGO"] = ""
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, slow_mo=50)
-        page = browser.new_page()
+    # ✅ Ajustes recomendados para ejecución headless estable
+        browser = p.chromium.launch(
+            headless=False,
+            slow_mo=50,  # mantiene tus tiempos, puedes subirlo a 100 si aún falla
+            args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
+        )
+
+        # ✅ Crear contexto con tamaño visible (importante en headless)
+        context = browser.new_context(viewport={"width": 1280, "height": 800})
+        page = context.new_page()
 
         try:
             # 🌐 Página 1: Crear Solicitud
@@ -609,6 +617,11 @@ def main():
 
                 # 💾 Guardar progreso después de cada fila
                 guardar_excel(df, "entrada.xlsx")
+
+        except Exception as e:
+            print(f"❌ Error en Página 1: {e}")
+            browser.close()
+            sys.exit(1)
 
         finally:
             browser.close()
