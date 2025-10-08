@@ -189,19 +189,20 @@ def retroceder_a_pagina2(page, max_intentos=10):
 # ==============================
 def pagina3_checkboxes_fecha(page, fecha_expedicion: str):
     """
-    Marca los checks, llena fecha de expedición y maneja error de fecha inválida.
+    Marca los checks, llena la fecha de expedición y maneja error de fecha inválida.
+    Si la fecha es ambigua (ej: 8/6/1997), prueba ambos formatos (%m/%d/%Y y %d/%m/%Y).
     Retorna:
       (True, None)  -> si avanzó a página 4
-      (False, msg)  -> si hubo error de fecha (msg = texto de error)
+      (False, msg)  -> si hubo error de fecha
     """
     print("🌐 Página 3: Check - Fecha Exp")
 
     page.wait_for_selector("#contenido_Wizard3_rbConFinMigratorio", timeout=12_000)
 
-    # 1. Seleccionar "SI" en radio migratorio
+    # 1️⃣ Seleccionar "SI" en radio migratorio
     page.check("#contenido_Wizard3_rbConFinMigratorio", force=True)
 
-    # 2. Marcar checkbox
+    # 2️⃣ Marcar checkbox
     cb = page.locator("#contenido_Wizard3_cbInformacionReservada")
     for intento in range(3):
         try:
@@ -216,52 +217,76 @@ def pagina3_checkboxes_fecha(page, fecha_expedicion: str):
     else:
         raise Exception("❌ El checkbox 'Acepto' no pudo marcarse después de 3 intentos")
 
-    # 3. Llenar fecha
-    campo_fecha = page.locator("#contenido_Wizard3_tbExpedicionCedula_tbFecha")
-    campo_fecha.click()
-    page.wait_for_timeout(500)
-    campo_fecha.press("Control+A")
-    campo_fecha.press("Delete")
-    page.wait_for_timeout(500)
+    # 3️⃣ Normalizar fecha de entrada
+    fecha_expedicion = str(fecha_expedicion).strip().replace("-", "/")
 
-    for ch in fecha_expedicion:  # ej: "02122015"
-        page.keyboard.type(ch, delay=100)
+    if len(fecha_expedicion) == 8 and "/" not in fecha_expedicion:
+        fecha_expedicion = f"{fecha_expedicion[:2]}/{fecha_expedicion[2:4]}/{fecha_expedicion[4:]}"
+        print(f"📅 Fecha formateada automáticamente como {fecha_expedicion}")
 
-    page.wait_for_timeout(1500)
+    # 4️⃣ Intentar con los dos posibles formatos
+    posibles_formatos = ["%m/%d/%Y", "%d/%m/%Y"]
+    ultimo_error = None
 
-    # 4. Intentar continuar
-    page.click("#contenido_Wizard3_StepNavigationTemplateContainerID_StepNextButton")
+    for idx, formato in enumerate(posibles_formatos, start=1):
+        try:
+            fecha = datetime.strptime(fecha_expedicion, formato)
+        except ValueError:
+            # Fecha imposible en este formato (ej: mes 29)
+            continue
 
-    # Esperar: o aparece la página 4, o aparece el modal de error
-    try:
-        page.wait_for_selector("#contenido_Wizard3_ucTramitePorPais_ddlPais", timeout=8_000)
-        print("➡️ Avanzando a Página 4")
-        return True, None
+        fecha_str_final = fecha.strftime("%d%m%Y")
+        print(f"🧩 Probando formato {formato} → {fecha_str_final} (intento {idx})")
 
-    except Exception:
-        # 📌 Verificar si apareció el modal de fecha inválida
-        modal_selector = "#contenido_ucInfor_panInformmacion"
-        if page.is_visible(modal_selector):
-            mensaje = page.inner_text("#contenido_ucInfor_lbMensajeEnPopup")
-            print(f"❌ Error detectado en Página 3: {mensaje}")
+        # 👉 Digitar fecha
+        campo_fecha = page.locator("#contenido_Wizard3_tbExpedicionCedula_tbFecha")
+        campo_fecha.click()
+        page.wait_for_timeout(400)
+        campo_fecha.press("Control+A")
+        campo_fecha.press("Delete")
+        page.wait_for_timeout(300)
 
-            # Intentar cerrar modal si aún está visible
-            try:
-                if page.is_visible("#contenido_ucInfor_lbClose"):
-                    page.click("#contenido_ucInfor_lbClose", timeout=2000)
-                    print("🔒 Modal cerrado")
-                else:
-                    print("ℹ️ El modal ya no estaba visible")
-            except Exception as e:
-                print(f"⚠️ No se pudo cerrar el modal: {e}")
+        for ch in fecha_str_final:
+            page.keyboard.type(ch, delay=100)
+        page.wait_for_timeout(800)
 
-            # 🔄 Retroceder dinámicamente hasta Página 2
-            retroceder_a_pagina2(page)
+        # 👉 Intentar avanzar
+        page.click("#contenido_Wizard3_StepNavigationTemplateContainerID_StepNextButton")
 
-            return False, mensaje
-        else:
-            raise Exception("❌ Error desconocido: no cargó Página 4 ni apareció el modal de error")
+        try:
+            page.wait_for_selector("#contenido_Wizard3_ucTramitePorPais_ddlPais", timeout=8000)
+            print(f"✅ Fecha válida y aceptada ({formato})")
+            return True, None
 
+        except Exception:
+            # 📌 Verificar si apareció el modal de fecha inválida
+            modal_selector = "#contenido_ucInfor_panInformmacion"
+            if page.is_visible(modal_selector):
+                mensaje = page.inner_text("#contenido_ucInfor_lbMensajeEnPopup")
+                print(f"❌ Error detectado con formato {formato}: {mensaje}")
+                ultimo_error = mensaje
+
+                # Intentar cerrar modal, pero SIN retroceder a Página 2 todavía
+                try:
+                    if page.is_visible("#contenido_ucInfor_lbClose"):
+                        page.click("#contenido_ucInfor_lbClose", timeout=2000)
+                        print("🔒 Modal cerrado para reintentar otro formato")
+                    else:
+                        print("ℹ️ El modal ya no estaba visible")
+                except Exception as e:
+                    print(f"⚠️ No se pudo cerrar el modal: {e}")
+
+                # Reintentar siguiente formato SIN retroceder
+                continue
+            else:
+                ultimo_error = "❌ No avanzó ni apareció modal"
+                print(ultimo_error)
+                continue
+
+    # 🧱 Si llega aquí, ninguno de los formatos funcionó → retroceder recién ahora
+    print("⚠️ Ningún formato de fecha fue aceptado — retrocediendo a Página 2")
+    retroceder_a_pagina2(page)
+    return False, ultimo_error or "⚠️ Validar fecha de expedición CC (ningún formato aceptado)"
 
 # ==============================
 # 📌 PÁGINA 4
